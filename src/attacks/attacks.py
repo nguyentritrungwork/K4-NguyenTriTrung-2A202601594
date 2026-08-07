@@ -255,6 +255,9 @@ async def run_attacks(
         print(f"Input: {attack['input'][:100]}...")
 
         try:
+            import asyncio
+            # Sleep 6 seconds to avoid 429 rate limit errors on Gemini free tier
+            await asyncio.sleep(6.0)
             response, _ = await chat_with_agent(agent, runner, attack["input"])
             outcome = classify_attack_outcome(
                 attack["input"], response, target_name=target_name

@@ -42,15 +42,12 @@ async def run_comparison():
 
     # --- Protected agent ---
     # TODO 9: Create the protected agent with guardrail plugins
-    # Hint:
-    # input_plugin = InputGuardrailPlugin()
-    # output_plugin = OutputGuardrailPlugin(use_llm_judge=False)
-    # protected_agent, protected_runner = create_protected_agent(
-    #     plugins=[input_plugin, output_plugin]
-    # )
-    # protected_results = await run_attacks(protected_agent, protected_runner)
-
-    protected_results = []  # TODO: Replace with actual results
+    input_plugin = InputGuardrailPlugin()
+    output_plugin = OutputGuardrailPlugin(use_llm_judge=False)
+    protected_agent, protected_runner = create_protected_agent(
+        plugins=[input_plugin, output_plugin]
+    )
+    protected_results = await run_attacks(protected_agent, protected_runner)
 
     return unprotected_results, protected_results
 
@@ -145,6 +142,8 @@ class SecurityTestPipeline:
             TestResult with classification
         """
         try:
+            # Sleep 6 seconds to avoid 429 quota limits on the Gemini API free tier
+            await asyncio.sleep(6.0)
             response, _ = await chat_with_agent(
                 self.agent, self.runner, attack["input"]
             )
@@ -177,18 +176,11 @@ class SecurityTestPipeline:
             attacks = adversarial_prompts
 
         # TODO 10: Implement the pipeline logic
-        # 1. Loop through each attack
-        # 2. Call self.run_single(attack) for each
-        # 3. Collect and return all TestResult objects
-        #
-        # Hint:
-        # results = []
-        # for attack in attacks:
-        #     result = await self.run_single(attack)
-        #     results.append(result)
-        # return results
-
-        return []  # TODO: Replace with implementation
+        results = []
+        for attack in attacks:
+            result = await self.run_single(attack)
+            results.append(result)
+        return results
 
     def calculate_metrics(self, results: list) -> dict:
         """Calculate security metrics from test results.
@@ -200,21 +192,24 @@ class SecurityTestPipeline:
             dict with block_rate, leak_rate, total, blocked, leaked counts
         """
         # TODO 10: Calculate metrics
-        # - total: len(results)
-        # - blocked: count where result.blocked is True
-        # - leaked: count where result.leaked_secrets is non-empty
-        # - block_rate: blocked / total
-        # - leak_rate: leaked / total
-        # - all_secrets_leaked: flat list of all leaked secrets
+        total = len(results)
+        blocked = sum(1 for r in results if r.blocked)
+        leaked = sum(1 for r in results if len(r.leaked_secrets) > 0)
+        block_rate = blocked / total if total > 0 else 0.0
+        leak_rate = leaked / total if total > 0 else 0.0
+        
+        all_secrets_leaked = []
+        for r in results:
+            all_secrets_leaked.extend(r.leaked_secrets)
 
         return {
-            "total": 0,
-            "blocked": 0,
-            "leaked": 0,
-            "block_rate": 0.0,
-            "leak_rate": 0.0,
-            "all_secrets_leaked": [],
-        }  # TODO: Replace with implementation
+            "total": total,
+            "blocked": blocked,
+            "leaked": leaked,
+            "block_rate": block_rate,
+            "leak_rate": leak_rate,
+            "all_secrets_leaked": all_secrets_leaked,
+        }
 
     def print_report(self, results: list):
         """Print a formatted security test report.
