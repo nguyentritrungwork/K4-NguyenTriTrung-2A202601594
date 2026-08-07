@@ -42,10 +42,9 @@ def detect_injection(user_input: str) -> bool:
     Returns:
         True if injection detected, False otherwise
     """
-    # 1. Canonicalize Unicode and remove invisible/control characters
+    # Canonicalize Unicode and remove invisible/control characters
     normalized = unicodedata.normalize('NFKC', user_input)
-    
-    # Strip invisible/Cf control characters, zero-width chars
+
     cleaned_chars = []
     for char in normalized:
         category = unicodedata.category(char)
@@ -58,22 +57,19 @@ def detect_injection(user_input: str) -> bool:
     normalized = re.sub(r'\s+', ' ', normalized).strip()
 
     INJECTION_PATTERNS = [
-        # Ignore instructions (English & Vietnamese)
+
         r"(?:ignore|forget|disregard|bypass|override)\s+(?:all\s+)?(?:previous|above|prior|system)?\s*(?:instructions|prompt|directives|rules|system|settings|guidelines)",
         r"(?:bỏ qua|quên)\s+(?:tất cả|mọi)?\s*(?:hướng dẫn|yêu cầu|chỉ thị|prompt|luật|thiết lập|cài đặt)",
         
-        # System prompt leakage (English & Vietnamese) - requiring descriptors to prevent false positives
         r"(?:reveal|show|output|print|translate|disclose|copy|share|tell|write)\s+(?:your\s+|system\s+|internal\s+|original\s+|source\s+)(?:instructions|prompt|directives|rules|guidelines|secret)",
         r"(?:tiết lộ|cho tôi xem|hiển thị|in|dịch|chia sẻ)\s+(?:hướng dẫn|prompt|chỉ thị|câu lệnh|thiết lập|bí mật)\s+(?:hệ thống|gốc|ban đầu|nội bộ)",
         r"(?:show\s+me|reveal|reveal\s+your)\s+(?:your\s+)?system\s+(?:prompt|instructions)",
         r"(?:tiết lộ|hiển thị)\s+system\s+prompt",
         
-        # Roleplay / Jailbreak (English & Vietnamese)
         r"you\s+are\s+now\s+(?:an?\s+)?(?:unrestricted|jailbroken|dan|developer\s+mode|assistant\s+without|free|evil|another)\b",
         r"hãy\s+(?:đóng vai|giả vờ làm|trở thành)\s+(?:một\s+)?(?:ai|trợ lý|bot|nhân vật)?\s*(?:không bị giới hạn|tự do|dan|khác|mới)",
         r"(?:pretend|act)\s+as\s+(?:an?\s+)?(?:unrestricted|jailbroken|dan|free|evil|different|another)\b",
         
-        # Authority / System instruction simulation
         r"\[system\s*(?:message|prompt|instruction|control)\]",
         r"system\s*(?:message|prompt|instruction)\s*[:=]"
     ]
@@ -103,33 +99,26 @@ def topic_filter(user_input: str) -> bool:
     Returns:
         True if input should be BLOCKED (off-topic or blocked topic)
     """
-    # 1. Normalize the input text first
     normalized = unicodedata.normalize('NFKC', user_input).lower()
     
-    # 2. Check blocked topics
     for blocked in BLOCKED_TOPICS:
         if blocked in normalized:
             return True
 
-    # 3. Check if it contains any of the allowed topics
     for allowed in ALLOWED_TOPICS:
         if allowed in normalized:
             return False
 
-    # 4. Allow common polite conversational words / greetings to prevent false blocking
-    # of standard warm greeting phrases
     greetings = {
         "hi", "hello", "hey", "chào", "xin chào", "good morning", "good afternoon",
         "good evening", "chào bạn", "alo", "chào robot", "chào bot"
     }
-    # Clean punctuation for greeting matching
     cleaned_normalized = re.sub(r'[^\w\s]', '', normalized).strip()
     words = cleaned_normalized.split()
     
     if cleaned_normalized in greetings or any(word in greetings for word in words[:2]):
         return False
 
-    # 5. Otherwise, block the off-topic query
     return True
 
 

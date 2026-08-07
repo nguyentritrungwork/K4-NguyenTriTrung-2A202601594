@@ -207,44 +207,44 @@ async def run_assignment_suite(pipeline, student_id: str) -> dict:
                     raw_response = await simple_generate(full_prompt)
                     print(f"  -> Gemini API response received.")
                 
-                # Check output guardrail plugins
-                if output_guardrail:
-                    output_guardrail.total_count += 1
-                    
-                    # 1. Content filter (offline)
-                    filter_res = content_filter(raw_response)
-                    
-                    # 2. Safety Judge (LLM based)
-                    judge_safe = True
-                    if output_guardrail.use_llm_judge:
-                        from guardrails.output_guardrails import SAFETY_JUDGE_INSTRUCTION
-                        judge_prompt = f"{SAFETY_JUDGE_INSTRUCTION}\n\nAI Response to evaluate:\n{raw_response}"
-                        judge_res = await simple_generate(judge_prompt)
-                        if "UNSAFE" in judge_res.upper():
-                            judge_safe = False
+                    # Check output guardrail plugins
+                    if output_guardrail:
+                        output_guardrail.total_count += 1
+                        
+                        # 1. Content filter (offline)
+                        filter_res = content_filter(raw_response)
+                        
+                        # 2. Safety Judge (LLM based)
+                        judge_safe = True
+                        if output_guardrail.use_llm_judge:
+                            from guardrails.output_guardrails import SAFETY_JUDGE_INSTRUCTION
+                            judge_prompt = f"{SAFETY_JUDGE_INSTRUCTION}\n\nAI Response to evaluate:\n{raw_response}"
+                            judge_res = await simple_generate(judge_prompt)
+                            if "UNSAFE" in judge_res.upper():
+                                judge_safe = False
 
-                    if not filter_res["safe"]:
-                        output_guardrail.redacted_count += 1
-                        raw_response = filter_res["redacted"]
-                        og_redacted = True
-                        print(f"  -> Redacted sensitive information.")
+                        if not filter_res["safe"]:
+                            output_guardrail.redacted_count += 1
+                            raw_response = filter_res["redacted"]
+                            og_redacted = True
+                            print(f"  -> Redacted sensitive information.")
 
-                    if not judge_safe:
-                        output_guardrail.blocked_count += 1
-                        raw_response = "Response blocked due to safety policy."
-                        is_blocked = True
-                        layer = "output_rail"
-                        og_blocked = True
-                        print(f"  -> BLOCKED by LLM Judge")
+                        if not judge_safe:
+                            output_guardrail.blocked_count += 1
+                            raw_response = "Response blocked due to safety policy."
+                            is_blocked = True
+                            layer = "output_rail"
+                            og_blocked = True
+                            print(f"  -> BLOCKED by LLM Judge")
 
-                    response = raw_response
-                else:
-                    response = raw_response
-            except Exception as e:
-                response = f"Error: {e}"
-                is_blocked = True
-                layer = "system_error"
-                print(f"  -> SYSTEM ERROR: {e}")
+                        response = raw_response
+                    else:
+                        response = raw_response
+                except Exception as e:
+                    response = f"Error: {e}"
+                    is_blocked = True
+                    layer = "system_error"
+                    print(f"  -> SYSTEM ERROR: {e}")
 
         pipeline["audit"].record_output(user_id=user_id, text=response, blocked=is_blocked, layer=layer, request_id=request_id)
         
