@@ -13,6 +13,14 @@ import sys
 import asyncio
 import argparse
 
+# Force UTF-8 encoding on standard output/error to avoid charmap encoding errors on Windows
+if hasattr(sys.stdout, "reconfigure"):
+    try:
+        sys.stdout.reconfigure(encoding="utf-8")
+        sys.stderr.reconfigure(encoding="utf-8")
+    except Exception:
+        pass
+
 from core.config import setup_api_key
 
 
@@ -146,11 +154,11 @@ def part4_hitl():
 
 
 async def part5_assignment_suite():
-    """Run defense suite → write outputs/results.json (+ audit/metrics)."""
+    """Run defense suite -> write outputs/results.json (+ audit/metrics)."""
     import os
 
     print("\n" + "=" * 60)
-    print("PART 5: Assignment suite → outputs/*.json")
+    print("PART 5: Assignment suite -> outputs/*.json")
     print("=" * 60)
 
     from assignment.pipeline import (

@@ -1,54 +1,95 @@
 """
-Assignment 11 — Rate Limiter starter (TODO).
+Assignment 11 — Rate Limiter Plugin (TODO 8).
 
-Sliding-window, per-user rate limiting. Blocks abuse that other
-guardrail layers do not address (flooding / cost attacks).
+Enforces per-user rate limits before requests reach the LLM.
+Uses a sliding-window counter tracked in memory.
 """
 from __future__ import annotations
 
-from collections import defaultdict, deque
 import time
+from collections import defaultdict
 
-from google.adk.plugins import base_plugin
 from google.genai import types
+from google.adk.plugins import base_plugin
+from google.adk.agents.invocation_context import InvocationContext
 
 
 class RateLimitPlugin(base_plugin.BasePlugin):
-    """Block users who exceed max_requests within window_seconds."""
+    """Sliding-window rate limiter plugin.
+
+    Enforces ``max_requests`` per ``window_seconds`` per user_id.
+    Uses the invocation_context.user_id when available; falls back to 'anonymous'.
+
+    Attributes:
+        max_requests: Maximum allowed requests in the rolling window.
+        window_seconds: Length of the rolling window in seconds.
+        user_windows: Dict mapping user_id -> list[timestamp] of recent calls.
+        blocked_count: Total number of requests blocked by this plugin.
+        total_count: Total requests seen by this plugin.
+    """
 
     def __init__(self, max_requests: int = 10, window_seconds: int = 60):
         super().__init__(name="rate_limiter")
         self.max_requests = max_requests
         self.window_seconds = window_seconds
-        self.user_windows: dict[str, deque] = defaultdict(deque)
-        self.blocked_count = 0
-        self.total_count = 0
+        # user_id -> list of call timestamps within the current window
+        self.user_windows: dict[str, list[float]] = defaultdict(list)
+        self.blocked_count: int = 0
+        self.total_count: int = 0
 
-    def _block_response(self, message: str) -> types.Content:
-        return types.Content(
-            role="model",
-            parts=[types.Part.from_text(text=message)],
-        )
+    def _get_user_id(self, invocation_context: InvocationContext | None) -> str:
+        """Extract user_id from context, defaulting to 'anonymous'."""
+        try:
+            if invocation_context is not None:
+                uid = getattr(invocation_context, "user_id", None)
+                if uid:
+                    return str(uid)
+        except Exception:
+            pass
+        return "anonymous"
 
-    async def on_user_message_callback(self, *, invocation_context, user_message):
-        """Return Content to block, or None to allow."""
-        self.total_count += 1
-        user_id = getattr(invocation_context, "user_id", None) or "anonymous"
+    def _is_allowed(self, user_id: str) -> bool:
+        """Check + update the sliding window. Returns True if request is allowed."""
         now = time.time()
         window = self.user_windows[user_id]
+        # Evict timestamps older than the window
+        cutoff = now - self.window_seconds
+        self.user_windows[user_id] = [t for t in window if t > cutoff]
 
-        # 1. Pop timestamps older than (now - window_seconds) from the left
-        while window and window[0] < (now - self.window_seconds):
-            window.popleft()
+        if len(self.user_windows[user_id]) >= self.max_requests:
+            return False
 
-        # 2. If len(window) >= max_requests:
-        if len(window) >= self.max_requests:
-            wait = self.window_seconds - (now - window[0])
+        # Stamp the new request
+        self.user_windows[user_id].append(now)
+        return True
+
+    async def on_user_message_callback(
+        self,
+        *,
+        invocation_context: InvocationContext,
+        user_message: types.Content,
+    ) -> types.Content | None:
+        """Block request if user has exceeded their rate limit.
+
+        Returns:
+            None if allowed (pass through to next plugin/LLM).
+            types.Content block message if rate limit exceeded.
+        """
+        self.total_count += 1
+        user_id = self._get_user_id(invocation_context)
+
+        if not self._is_allowed(user_id):
             self.blocked_count += 1
-            return self._block_response(
-                f"Rate limit exceeded. Try again in {wait:.0f}s."
+            return types.Content(
+                role="model",
+                parts=[
+                    types.Part.from_text(
+                        text=(
+                            f"Rate limit exceeded. You have made {self.max_requests} requests "
+                            f"in the last {self.window_seconds} seconds. "
+                            "Please try again shortly."
+                        )
+                    )
+                ],
             )
-
-        # 3. Else: append now, return None
-        window.append(now)
         return None

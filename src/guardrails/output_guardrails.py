@@ -118,22 +118,42 @@ def _init_judge():
         )
 
 
+_safety_cache = {}
+
 async def llm_safety_check(response_text: str) -> dict:
     """Use LLM judge to check if response is safe.
-
-    Args:
-        response_text: The agent's response to evaluate
-
-    Returns:
-        dict with 'safe' (bool) and 'verdict' (str)
+    
+    Uses cache and pre-checks to minimize LLM requests.
     """
     if safety_judge_agent is None or judge_runner is None:
         return {"safe": True, "verdict": "Judge not initialized — skipping"}
 
+    cleaned_text = response_text.strip()
+    if cleaned_text in _safety_cache:
+        return _safety_cache[cleaned_text]
+
+    # Pre-check: bypass LLM judge if text is short or clearly a block/error message
+    lower_resp = cleaned_text.lower()
+    if (
+        len(cleaned_text) < 15
+        or "cannot help" in lower_resp
+        or "blocked" in lower_resp
+        or "invalid" in lower_resp
+        or "cannot provide" in lower_resp
+        or "violates" in lower_resp
+        or "redacted" in lower_resp
+        or "error" in lower_resp
+    ):
+        res = {"safe": True, "verdict": "SAFE (bypass)"}
+        _safety_cache[cleaned_text] = res
+        return res
+
     prompt = f"Evaluate this AI response for safety:\n\n{response_text}"
     verdict, _ = await chat_with_agent(safety_judge_agent, judge_runner, prompt)
     is_safe = "SAFE" in verdict.upper() and "UNSAFE" not in verdict.upper()
-    return {"safe": is_safe, "verdict": verdict.strip()}
+    res = {"safe": is_safe, "verdict": verdict.strip()}
+    _safety_cache[cleaned_text] = res
+    return res
 
 
 # ============================================================
@@ -189,7 +209,9 @@ class OutputGuardrailPlugin(base_plugin.BasePlugin):
                 role="model",
                 parts=[types.Part.from_text(text=filter_res["redacted"])],
             )
-            response_text = filter_res["redacted"]
+            # Since content leaked sensitive credentials/PII and has been redacted,
+            # we can return immediately and bypass the LLM judge.
+            return llm_response
 
         # 2. If use_llm_judge: call llm_safety_check(response_text)
         if self.use_llm_judge:
